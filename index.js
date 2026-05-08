@@ -1,113 +1,135 @@
 const express = require('express');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
 const dotenv = require('dotenv');
+const { createClient } = require('@libsql/client');
 
-dotenv.config(); // Load environment variables from .env file
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors()); // Enable CORS for all origins
-app.use(express.json()); // Parse JSON request bodies
+app.use(cors());
+app.use(express.json());
+
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  next(); 
+  next();
 });
 
-// SQLite database setup
-const DB_PATH = path.join(__dirname, 'personal_assistant.db');
-const db = new sqlite3.Database(DB_PATH, (err) => {
-  if (err) {
-    console.error('Database connection error:', err.message);
-    process.exit(1); 
-  } else {
-    console.log('Connected to SQLite database');
-    const createTables = `
+// Turso Database Setup
+const db = createClient({
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+// Initialize Database Tables
+async function initializeDatabase() {
+  try {
+    // Contacts Table
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS contacts (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId TEXT, -- Added userId for contacts
+        userId TEXT,
         name TEXT NOT NULL,
         address TEXT,
         phone_number TEXT,
         email TEXT
-      );
+      )
+    `);
+
+    // Appointments Table
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS appointments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        userId TEXT NOT NULL, -- Ensure userId is NOT NULL for appointments
+        userId TEXT NOT NULL,
         date TEXT NOT NULL,
         startTime TEXT NOT NULL,
         endTime TEXT,
         location TEXT NOT NULL
-      );
+      )
+    `);
+
+    // Reminders Table
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS reminders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId TEXT NOT NULL,
         text TEXT NOT NULL,
         date TEXT NOT NULL,
-        -- You might want to add time or specific notification flags for reminders
-        -- For now, this table exists but isn't fully used by the AI assistant directly for "set a reminder"
-        -- The "set a reminder" command currently integrates with appointments logic.
-        -- This table can be extended for more general-purpose text-based reminders.
-        timestamp TEXT DEFAULT CURRENT_TIMESTAMP -- When the reminder was created
-      );
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // History Table
+    await db.execute(`
       CREATE TABLE IF NOT EXISTS history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         userId TEXT NOT NULL,
         command TEXT NOT NULL,
-        response TEXT, -- Store AI's response too
-        timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    db.exec(createTables, (err) => {
-      if (err) console.error('Table creation error:', err.message);
-      else console.log('Tables initialized or already exist');
-    });
+        response TEXT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('✅ Turso database connected');
+    console.log('✅ Tables initialized successfully');
+  } catch (error) {
+    console.error('❌ Database initialization error:', error);
+    process.exit(1);
   }
-});
+}
+
+// Initialize DB
+initializeDatabase();
 
 // Routes
 const contactsRouter = require('./routes/contacts')(db);
 const appointmentsRouter = require('./routes/appointments')(db);
-const aiRouter = require('./routes/ai'); // New AI router
-const subscribeRouter = require('./routes/subscribe'); // Assuming this is for newsletters etc.
+const aiRouter = require('./routes/ai');
+const subscribeRouter = require('./routes/subscribe');
 
 app.use('/api/contacts', contactsRouter);
 app.use('/api/appointments', appointmentsRouter);
-app.use('/api/ai', aiRouter); // Mount the new AI router
+app.use('/api/ai', aiRouter);
 app.use('/api/subscribe', subscribeRouter);
 
-// API Key Validation Middleware (for backend checks)
+// API Key Validation Middleware
 app.use((req, res, next) => {
-  const requiredEnv = ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'WOLFRAM_ALPHA_APPID']; 
-  const missing = requiredEnv.filter(key => !process.env[key]);
+  const requiredEnv = [
+    'GEMINI_API_KEY',
+    'OPENAI_API_KEY',
+    'WOLFRAM_ALPHA_APPID',
+  ];
+
+  const missing = requiredEnv.filter(
+    (key) => !process.env[key]
+  );
+
   if (missing.length > 0) {
-    console.warn(`Missing environment variables on backend: ${missing.join(', ')}. AI functionality might be limited.`);
+    console.warn(
+      `⚠️ Missing environment variables: ${missing.join(', ')}`
+    );
   }
+
   next();
 });
 
-// Basic route
+// Root Route
 app.get('/', (req, res) => {
-  res.send('Chappie Backend is running and ready for duty!');
+  res.send('🚀 Chappie Backend running with Turso Database');
 });
 
-// Graceful shutdown
+// Graceful Shutdown
 process.on('SIGTERM', shutDown);
 process.on('SIGINT', shutDown);
 
-function shutDown() {
-  console.log('Signal received: closing SQLite connection');
-  db.close((err) => {
-    if (err) console.error('Error closing database:', err.message);
-    else console.log('SQLite connection closed.');
-    process.exit(err ? 1 : 0);
-  });
+async function shutDown() {
+  console.log('🛑 Shutting down server gracefully...');
+  process.exit(0);
 }
 
-// Start server
+// Start Server
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
