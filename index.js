@@ -1,7 +1,7 @@
-const express = require('express');
-const cors = require('cors');
-const dotenv = require('dotenv');
-const { createClient } = require('@libsql/client');
+const express = require("express");
+const cors = require("cors");
+const dotenv = require("dotenv");
+const { createClient } = require("@libsql/client");
 
 dotenv.config();
 
@@ -61,6 +61,14 @@ async function initializeDatabase() {
       )
     `);
 
+    //Newsletter
+    await db.execute(`
+     CREATE TABLE IF NOT EXISTS subscribers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT UNIQUE NOT NULL,
+      subscribedAt TEXT NOT NULL
+  )
+`);
     // History Table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS history (
@@ -72,10 +80,10 @@ async function initializeDatabase() {
       )
     `);
 
-    console.log('✅ Turso database connected');
-    console.log('✅ Tables initialized successfully');
+    console.log("✅ Turso database connected");
+    console.log("✅ Tables initialized successfully");
   } catch (error) {
-    console.error('❌ Database initialization error:', error);
+    console.error("❌ Database initialization error:", error);
     process.exit(1);
   }
 }
@@ -84,48 +92,44 @@ async function initializeDatabase() {
 initializeDatabase();
 
 // Routes
-const contactsRouter = require('./routes/contacts')(db);
-const appointmentsRouter = require('./routes/appointments')(db);
-const aiRouter = require('./routes/ai');
-const subscribeRouter = require('./routes/subscribe');
+const contactsRouter = require("./routes/contacts")(db);
+const appointmentsRouter = require("./routes/appointments")(db);
+const aiRouter = require("./routes/ai");
+const subscribeRouter = require("./routes/subscribe")(db);
 
-app.use('/api/contacts', contactsRouter);
-app.use('/api/appointments', appointmentsRouter);
-app.use('/api/ai', aiRouter);
-app.use('/api/subscribe', subscribeRouter);
+app.use("/api/contacts", contactsRouter);
+app.use("/api/appointments", appointmentsRouter);
+app.use("/api/ai", aiRouter);
+app.use("/api/subscribe", subscribeRouter);
 
 // API Key Validation Middleware
 app.use((req, res, next) => {
   const requiredEnv = [
-    'GEMINI_API_KEY',
-    'OPENAI_API_KEY',
-    'WOLFRAM_ALPHA_APPID',
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "WOLFRAM_ALPHA_APPID",
   ];
 
-  const missing = requiredEnv.filter(
-    (key) => !process.env[key]
-  );
+  const missing = requiredEnv.filter((key) => !process.env[key]);
 
   if (missing.length > 0) {
-    console.warn(
-      `⚠️ Missing environment variables: ${missing.join(', ')}`
-    );
+    console.warn(`Missing environment variables: ${missing.join(", ")}`);
   }
 
   next();
 });
 
 // Root Route
-app.get('/', (req, res) => {
-  res.send('🚀 Chappie Backend running with Turso Database');
+app.get("/", (req, res) => {
+  res.send("🚀 Chappie Backend running with Turso Database");
 });
 
 // Graceful Shutdown
-process.on('SIGTERM', shutDown);
-process.on('SIGINT', shutDown);
+process.on("SIGTERM", shutDown);
+process.on("SIGINT", shutDown);
 
 async function shutDown() {
-  console.log('🛑 Shutting down server gracefully...');
+  console.log("Shutting down server gracefully...");
   process.exit(0);
 }
 
