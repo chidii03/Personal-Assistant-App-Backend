@@ -2,107 +2,186 @@ const express = require('express');
 const router = express.Router();
 
 module.exports = (db) => {
-  // Get all contacts (now with optional userId filtering)
-  router.get('/', (req, res) => {
-    const { userId } = req.query; // Get userId from query parameters
-    let sql = 'SELECT * FROM contacts';
-    let params = [];
 
-    if (userId && userId !== 'anonymous') {
-      sql += ' WHERE userId = ?';
-      params.push(userId);
-    }
+  // GET CONTACTS
+  router.get('/', async (req, res) => {
+    try {
+      const { userId } = req.query;
 
-    db.all(sql, params, (err, rows) => {
-      if (err) {
-        console.error('Database query error (GET contacts):', err.message);
-        return res.status(500).json({ error: err.message });
+      let result;
+
+      if (userId && userId !== 'anonymous') {
+        result = await db.execute({
+          sql: 'SELECT * FROM contacts WHERE userId = ?',
+          args: [userId]
+        });
+      } else {
+        result = await db.execute('SELECT * FROM contacts');
       }
-      res.json(rows);
-    });
+
+      res.json(result.rows);
+
+    } catch (error) {
+      console.error('GET contacts error:', error);
+      res.status(500).json({
+        error: error.message
+      });
+    }
   });
 
-  // Add a contact
-  router.post('/', (req, res) => {
-    const { name, address, phone_number, email, userId } = req.body; // Expect userId from frontend
+  // ADD CONTACT
+  router.post('/', async (req, res) => {
+    try {
+      const {
+        name,
+        address,
+        phone_number,
+        email,
+        userId
+      } = req.body;
 
-    // Validate required fields
-    if (!name || !userId) { // Name and userId are now required
-      return res.status(400).json({ error: 'Name and userId are required to add a contact' });
-    }
-
-    db.run(
-      'INSERT INTO contacts (name, address, phone_number, email, userId) VALUES (?, ?, ?, ?, ?)',
-      [name, address || null, phone_number || null, email || null, userId], // Ensure userId is inserted
-      function (err) {
-        if (err) {
-          console.error('Database insert error (POST contact):', err.message);
-          return res.status(500).json({ error: err.message });
-        }
-        db.get('SELECT * FROM contacts WHERE id = ?', [this.lastID], (err, row) => {
-          if (err) {
-            console.error('Database select error after insert (POST contact):', err.message);
-            return res.status(500).json({ error: err.message });
-          }
-          res.status(201).json(row);
+      if (!name || !userId) {
+        return res.status(400).json({
+          error: 'Name and userId are required'
         });
       }
-    );
+
+      await db.execute({
+        sql: `
+          INSERT INTO contacts (
+            name,
+            address,
+            phone_number,
+            email,
+            userId
+          )
+          VALUES (?, ?, ?, ?, ?)
+        `,
+        args: [
+          name,
+          address || null,
+          phone_number || null,
+          email || null,
+          userId
+        ]
+      });
+
+      const result = await db.execute({
+        sql: `
+          SELECT * FROM contacts
+          WHERE userId = ?
+          ORDER BY id DESC
+          LIMIT 1
+        `,
+        args: [userId]
+      });
+
+      res.status(201).json(result.rows[0]);
+
+    } catch (error) {
+      console.error('POST contact error:', error);
+
+      res.status(500).json({
+        error: error.message
+      });
+    }
   });
 
-  // Update a contact
-  router.put('/:id', (req, res) => {
-    const { id } = req.params;
-    const { name, address, phone_number, email, userId } = req.body; // Expect userId
+  // UPDATE CONTACT
+  router.put('/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    // Validate required fields
-    if (!name || !userId) { // Name and userId are required
-      return res.status(400).json({ error: 'Name and userId are required to update a contact' });
-    }
+      const {
+        name,
+        address,
+        phone_number,
+        email,
+        userId
+      } = req.body;
 
-    // Include userId in the WHERE clause for security and ownership
-    db.run(
-      'UPDATE contacts SET name = ?, address = ?, phone_number = ?, email = ? WHERE id = ? AND userId = ?',
-      [name, address || null, phone_number || null, email || null, id, userId],
-      function (err) {
-        if (err) {
-          console.error('Database update error (PUT contact):', err.message);
-          return res.status(500).json({ error: err.message });
-        }
-        if (this.changes === 0) {
-          return res.status(404).json({ error: 'Contact not found or you do not have permission to update it.' });
-        }
-        db.get('SELECT * FROM contacts WHERE id = ?', [id], (err, row) => {
-          if (err) {
-            console.error('Database select error after update (PUT contact):', err.message);
-            return res.status(500).json({ error: err.message });
-          }
-          res.json(row);
+      if (!name || !userId) {
+        return res.status(400).json({
+          error: 'Name and userId are required'
         });
       }
-    );
+
+      await db.execute({
+        sql: `
+          UPDATE contacts
+          SET
+            name = ?,
+            address = ?,
+            phone_number = ?,
+            email = ?
+          WHERE id = ?
+          AND userId = ?
+        `,
+        args: [
+          name,
+          address || null,
+          phone_number || null,
+          email || null,
+          id,
+          userId
+        ]
+      });
+
+      const result = await db.execute({
+        sql: `
+          SELECT * FROM contacts
+          WHERE id = ?
+        `,
+        args: [id]
+      });
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          error: 'Contact not found'
+        });
+      }
+
+      res.json(result.rows[0]);
+
+    } catch (error) {
+      console.error('PUT contact error:', error);
+
+      res.status(500).json({
+        error: error.message
+      });
+    }
   });
 
-  // Delete a contact
-  router.delete('/:id', (req, res) => {
-    const { id } = req.params;
-    const { userId } = req.query; // Expect userId from query for delete operation
+  // DELETE CONTACT
+  router.delete('/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { userId } = req.query;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required for deleting a contact.' });
+      if (!userId) {
+        return res.status(400).json({
+          error: 'userId is required'
+        });
+      }
+
+      await db.execute({
+        sql: `
+          DELETE FROM contacts
+          WHERE id = ?
+          AND userId = ?
+        `,
+        args: [id, userId]
+      });
+
+      res.status(204).send();
+
+    } catch (error) {
+      console.error('DELETE contact error:', error);
+
+      res.status(500).json({
+        error: error.message
+      });
     }
-
-    // Include userId in the WHERE clause for security and ownership
-    db.run('DELETE FROM contacts WHERE id = ? AND userId = ?', [id, userId], (err) => {
-      if (err) {
-        console.error('Database delete error (DELETE contact):', err.message);
-        return res.status(500).json({ error: err.message });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Contact not found or you do not have permission to delete it.' });
-      }
-      res.status(204).send(); // No content for successful delete
-    });
   });
 
   return router;
